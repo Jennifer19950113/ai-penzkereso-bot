@@ -4,40 +4,54 @@ const logger = require('../../src/utils/logger');
 const { handleStart, handleHelp } = require('../../src/handlers/commands');
 const { handleMessage } = require('../../src/handlers/messages');
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
+// Initialize bot instance for webhook processing
+let bot = null;
 
-if (!BOT_TOKEN) {
-  logger.error('BOT_TOKEN environment variable is not set!');
+function initializeBot() {
+  const BOT_TOKEN = process.env.BOT_TOKEN;
+  
+  if (!BOT_TOKEN) {
+    logger.error('BOT_TOKEN environment variable is not set!');
+    return null;
+  }
+
+  bot = new Telegraf(BOT_TOKEN);
+
+  // Command handlers
+  bot.command('start', handleStart);
+  bot.command('help', handleHelp);
+
+  // Message handlers
+  bot.on('text', handleMessage);
+
+  // Error handling
+  bot.catch((err, ctx) => {
+    logger.error('Bot error:', err);
+    ctx.reply('Sajnos hiba lépett fel. Kérlek, próbáld újra később.');
+  });
+
+  return bot;
 }
 
-const bot = new Telegraf(BOT_TOKEN);
-
-// Command handlers
-bot.command('start', handleStart);
-bot.command('help', handleHelp);
-
-// Message handlers
-bot.on('text', handleMessage);
-
-// Error handling
-bot.catch((err, ctx) => {
-  logger.error('Bot error:', err);
-  ctx.reply('Sajnos hiba lépett fel. Kérlek, próbáld újra később.');
-});
-
+// Vercel serverless function handler
 module.exports = async (req, res) => {
   try {
+    // Initialize bot on first request
+    if (!bot) {
+      bot = initializeBot();
+    }
+
+    if (!bot) {
+      logger.error('Bot failed to initialize');
+      return res.status(500).json({ error: 'Bot not configured' });
+    }
+
     if (req.method === 'POST') {
       const update = req.body;
 
-      if (!BOT_TOKEN) {
-        logger.error('BOT_TOKEN not configured');
-        return res.status(500).json({ error: 'Bot not configured' });
-      }
-
       logger.info('Received webhook update from Telegram');
 
-      // Process Telegram update
+      // Process Telegram webhook update
       await bot.handleUpdate(update);
 
       // Always respond with 200 OK to Telegram
