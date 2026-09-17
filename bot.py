@@ -10,7 +10,6 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", "10000"))
 
 
-# Render számára szükséges webes port
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -31,7 +30,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 XAU AI Bot elindult!\n\n"
         "📊 XAU/USD árlekérdezés hamarosan elérhető.\n"
-"⚠️ Jelenleg nincs valódi kereskedés."
+        "⚠️ Jelenleg nincs valódi kereskedés."
+    )
+
+
+async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 XAU/USD\n\n"
+        "Az élő árlekérés beállítása következik.\n"
+        "⚠️ Ez még nem kereskedési jel."
     )
 
 
@@ -39,11 +46,15 @@ async def main():
     if not TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN nincs beállítva.")
 
-    # Render port elindítása
-    threading.Thread(target=start_web_server, daemon=True).start()
+    threading.Thread(
+        target=start_web_server,
+        daemon=True
+    ).start()
 
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("price", price))
 
     await app.initialize()
     await app.start()
@@ -56,4 +67,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
