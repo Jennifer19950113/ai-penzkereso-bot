@@ -30,8 +30,8 @@ def start_web_server():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 XAU AI Bot elindult!\n\n"
-        "A rendszer jelenleg teszt módban működik.\n"
-        "Valódi kereskedési megbízást nem küld."
+        "📊 XAU/USD árlekérdezés hamarosan elérhető.\n"
+"⚠️ Jelenleg nincs valódi kereskedés."
     )
 
 
