@@ -15,7 +15,8 @@ PORT = int(os.environ.get("PORT", "10000"))
 
 KRAKEN_BASE = "https://api.kraken.com/0/public/OHLC"
 PAIR = "XBTUSDT"
-
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = "price_1UH2Bc5dT7Ky153dsKxDE1y2"
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
