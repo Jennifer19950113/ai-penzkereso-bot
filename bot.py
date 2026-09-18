@@ -129,11 +129,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                 "Stripe webhook:",
                 event_type
             )
-            if event_type == "checkout.session.completed":
+            
+ if event_type == "checkout.session.completed":
                 session = (
                     event.get("data", {})
-                    .get("object", {})
-                )
+                    .get("object", {})               )
                 telegram_user_id = (
                     session.get("metadata", {})
                     .get("telegram_user_id")
