@@ -34,7 +34,43 @@ def start_web_server():
     server.serve_forever()
 
 
-def get_candles(interval):
+def create_checkout_session(telegram_user_id):
+    if not STRIPE_SECRET_KEY:
+        raise RuntimeError("STRIPE_SECRET_KEY nincs beállítva.")
+
+    data = {
+        "mode": "subscription",
+        "ui_mode": "hosted_page",
+        "success_url": "https://ai-penzkereso-bot.onrender.com/success",
+        "cancel_url": "https://ai-penzkereso-bot.onrender.com/cancel",
+        "line_items[0][price]": STRIPE_PRICE_ID,
+        "line_items[0][quantity]": "1",
+        "billing_address_collection": "auto",
+        "payment_method_collection": "always",
+        "allow_promotion_codes": "true",
+        "metadata[telegram_user_id]": str(telegram_user_id),
+        "subscription_data[metadata][telegram_user_id]": str(telegram_user_id),
+    }
+
+    body = urllib.parse.urlencode(data).encode()
+
+    request = Request(
+        "https://api.stripe.com/v1/checkout/sessions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {STRIPE_SECRET_KEY}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+
+    with urlopen(request, timeout=20) as response:
+        result = json.loads(response.read().decode())
+
+    if "url" not in result:
+        raise RuntimeError(str(result))
+
+    return result["url"]def get_candles(interval):
     url = f"{KRAKEN_BASE}?pair={PAIR}&interval={interval}"
 
     with urlopen(url, timeout=15) as response:
