@@ -45,6 +45,7 @@ def activate_premium(user_id):
     users = load_premium_users()
     users[str(user_id)] = time.time() + (7 * 24 * 60 * 60)
     save_premium_users(users)# HEALTH + STRIPE WEBHOOK
+    
 # =========================
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
