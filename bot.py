@@ -353,11 +353,10 @@ def create_checkout_session(telegram_user_id):
         },
         method="POST",
     )
-
-    with urlopen(request, timeout=20) as response:
-        result = json.loads(
+  result = json.loads(
             response.read().decode()
         )
+      
 
     if "url" not in result:
         raise RuntimeError(str(result))
