@@ -1,7 +1,6 @@
 import os
-import asyncio
-import threading
 import json
+import threading
 import urllib.parse
 from urllib.request import urlopen, Request
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -25,38 +24,58 @@ STRIPE_PRICE_ID = "price_1UH2Bc5dT7Ky153dsKxDE1y2"
 # =========================
 
 class HealthHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        )
         self.end_headers()
-        self.wfile.write(b"AI Penzkereso Bot OK")
+
+        self.wfile.write(
+            b"AI Penzkereso Bot OK"
+        )
 
     def log_message(self, format, *args):
         return
 
 
 def start_health_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    server = HTTPServer(
+        ("0.0.0.0", PORT),
+        HealthHandler
+    )
+
     server.serve_forever()
 
 
 # =========================
-# KRAKEN DATA
+# KRAKEN
 # =========================
 
 def get_candles(interval):
-    url = f"{KRAKEN_BASE}?pair={PAIR}&interval={interval}"
+
+    url = (
+        f"{KRAKEN_BASE}"
+        f"?pair={PAIR}"
+        f"&interval={interval}"
+    )
 
     with urlopen(url, timeout=15) as response:
-        data = json.loads(response.read().decode())
+        data = json.loads(
+            response.read().decode()
+        )
 
     if data.get("error"):
-        raise RuntimeError(str(data["error"]))
+        raise RuntimeError(
+            str(data["error"])
+        )
 
     result = data["result"]
 
     pair_key = next(
-        key for key in result.keys()
+        key for key in result
         if key != "last"
     )
 
@@ -69,7 +88,7 @@ def get_candles(interval):
             "high": float(c[2]),
             "low": float(c[3]),
             "close": float(c[4]),
-            "volume": float(c[6]),
+            "volume": float(c[6])
         }
         for c in candles
     ]
@@ -80,19 +99,29 @@ def get_candles(interval):
 # =========================
 
 def ema(values, period):
+
     if len(values) < period:
         return None
 
     multiplier = 2 / (period + 1)
-    value = sum(values[:period]) / period
+
+    value = sum(
+        values[:period]
+    ) / period
 
     for price in values[period:]:
-        value = (price - value) * multiplier + value
+
+        value = (
+            (price - value)
+            * multiplier
+            + value
+        )
 
     return value
 
 
 def rsi(values, period=14):
+
     if len(values) < period + 1:
         return None
 
@@ -100,79 +129,156 @@ def rsi(values, period=14):
     losses = []
 
     for i in range(1, len(values)):
-        change = values[i] - values[i - 1]
+
+        change = (
+            values[i]
+            - values[i - 1]
+        )
 
         if change >= 0:
+
             gains.append(change)
             losses.append(0)
+
         else:
+
             gains.append(0)
-            losses.append(abs(change))
+            losses.append(
+                abs(change)
+            )
 
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
+    avg_gain = (
+        sum(gains[:period])
+        / period
+    )
 
-    for i in range(period, len(gains)):
-        avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
-        avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
+    avg_loss = (
+        sum(losses[:period])
+        / period
+    )
+
+    for i in range(
+        period,
+        len(gains)
+    ):
+
+        avg_gain = (
+            (
+                avg_gain
+                * (period - 1)
+            )
+            + gains[i]
+        ) / period
+
+        avg_loss = (
+            (
+                avg_loss
+                * (period - 1)
+            )
+            + losses[i]
+        ) / period
 
     if avg_loss == 0:
         return 100
 
     rs = avg_gain / avg_loss
 
-    return 100 - (100 / (1 + rs))
+    return 100 - (
+        100 / (1 + rs)
+    )
 
 
 def atr(candles, period=14):
+
     if len(candles) < period + 1:
         return None
 
     true_ranges = []
 
-    for i in range(1, len(candles)):
+    for i in range(
+        1,
+        len(candles)
+    ):
+
         high = candles[i]["high"]
         low = candles[i]["low"]
-        previous_close = candles[i - 1]["close"]
+
+        previous_close = (
+            candles[i - 1]["close"]
+        )
 
         tr = max(
             high - low,
-            abs(high - previous_close),
-            abs(low - previous_close),
+            abs(
+                high
+                - previous_close
+            ),
+            abs(
+                low
+                - previous_close
+            )
         )
 
         true_ranges.append(tr)
 
-    return sum(true_ranges[-period:]) / period
+    return (
+        sum(true_ranges[-period:])
+        / period
+    )
 
 
 # =========================
-# MARKET ANALYSIS
+# H4 TREND
 # =========================
 
 def get_h4_trend():
+
     candles = get_candles(240)
 
-    closes = [c["close"] for c in candles]
+    closes = [
+        c["close"]
+        for c in candles
+    ]
 
-    ema20 = ema(closes, 20)
-    ema200 = ema(closes, 200)
+    ema20 = ema(
+        closes,
+        20
+    )
+
+    ema200 = ema(
+        closes,
+        200
+    )
 
     current = closes[-1]
 
-    if ema20 is None or ema200 is None:
+    if (
+        ema20 is None
+        or ema200 is None
+    ):
         return "NEUTRAL"
 
-    if current > ema20 > ema200:
+    if (
+        current > ema20
+        and ema20 > ema200
+    ):
         return "BULLISH"
 
-    if current < ema20 < ema200:
+    if (
+        current < ema20
+        and ema20 < ema200
+    ):
         return "BEARISH"
 
     return "NEUTRAL"
 
 
+# =========================
+# M15 LIQUIDITY SWEEP
+# =========================
+
 def get_m15_sweep():
+
     candles = get_candles(15)
 
     if len(candles) < 12:
@@ -183,40 +289,80 @@ def get_m15_sweep():
 
     recent = candles[-12:-2]
 
-    recent_low = min(c["low"] for c in recent)
-    recent_high = max(c["high"] for c in recent)
+    recent_low = min(
+        c["low"]
+        for c in recent
+    )
 
-    if previous["low"] < recent_low and current["close"] > previous["high"]:
+    recent_high = max(
+        c["high"]
+        for c in recent
+    )
+
+    if (
+        previous["low"] < recent_low
+        and current["close"]
+        > previous["high"]
+    ):
         return "BUY"
 
-    if previous["high"] > recent_high and current["close"] < previous["low"]:
+    if (
+        previous["high"] > recent_high
+        and current["close"]
+        < previous["low"]
+    ):
         return "SELL"
 
     return "NONE"
 
 
+# =========================
+# M5 CONFIRMATION
+# =========================
+
 def get_m5_confirmation():
+
     candles = get_candles(5)
 
-    closes = [c["close"] for c in candles]
+    closes = [
+        c["close"]
+        for c in candles
+    ]
 
-    ema20 = ema(closes, 20)
-    ema50 = ema(closes, 50)
+    ema20 = ema(
+        closes,
+        20
+    )
+
+    ema50 = ema(
+        closes,
+        50
+    )
+
     current = closes[-1]
 
-    current_rsi = rsi(closes, 14)
+    current_rsi = rsi(
+        closes,
+        14
+    )
 
-    if ema20 is None or ema50 is None or current_rsi is None:
+    if (
+        ema20 is None
+        or ema50 is None
+        or current_rsi is None
+    ):
         return "NONE"
 
     if (
-        current > ema20 > ema50
+        current > ema20
+        and ema20 > ema50
         and 50 <= current_rsi <= 75
     ):
         return "BUY"
 
     if (
-        current < ema20 < ema50
+        current < ema20
+        and ema20 < ema50
         and 25 <= current_rsi <= 50
     ):
         return "SELL"
@@ -229,36 +375,75 @@ def get_m5_confirmation():
 # =========================
 
 def calculate_levels(direction):
+
     candles = get_candles(5)
 
-    current_price = candles[-1]["close"]
+    current_price = (
+        candles[-1]["close"]
+    )
 
     recent = candles[-5:]
 
-    current_atr = atr(candles, 14)
+    current_atr = atr(
+        candles,
+        14
+    )
 
     if current_atr is None:
-        current_atr = current_price * 0.002
+
+        current_atr = (
+            current_price * 0.002
+        )
 
     if direction == "BUY":
-        swing_low = min(c["low"] for c in recent)
 
-        stop_loss = swing_low - (current_atr * 0.20)
+        swing_low = min(
+            c["low"]
+            for c in recent
+        )
 
-        risk = current_price - stop_loss
+        stop_loss = (
+            swing_low
+            - current_atr * 0.20
+        )
 
-        take_profit = current_price + (risk * 2)
+        risk = (
+            current_price
+            - stop_loss
+        )
+
+        take_profit = (
+            current_price
+            + risk * 2
+        )
 
     else:
-        swing_high = max(c["high"] for c in recent)
 
-        stop_loss = swing_high + (current_atr * 0.20)
+        swing_high = max(
+            c["high"]
+            for c in recent
+        )
 
-        risk = stop_loss - current_price
+        stop_loss = (
+            swing_high
+            + current_atr * 0.20
+        )
 
-        take_profit = current_price - (risk * 2)
+        risk = (
+            stop_loss
+            - current_price
+        )
 
-    return current_price, stop_loss, take_profit
+        take_profit = (
+            current_price
+            - risk * 2
+        )
+
+    return (
+        current_price,
+        stop_loss,
+        take_profit
+    )
 
 
 # =========================
@@ -268,24 +453,43 @@ def calculate_levels(direction):
 def calculate_signal():
 
     h4 = get_h4_trend()
+
     m15 = get_m15_sweep()
+
     m5 = get_m5_confirmation()
 
-    if h4 == "BULLISH" and m15 == "BUY" and m5 == "BUY":
+    if (
+        h4 == "BULLISH"
+        and m15 == "BUY"
+        and m5 == "BUY"
+    ):
+
         direction = "BUY"
 
-    elif h4 == "BEARISH" and m15 == "SELL" and m5 == "SELL":
+    elif (
+        h4 == "BEARISH"
+        and m15 == "SELL"
+        and m5 == "SELL"
+    ):
+
         direction = "SELL"
 
     else:
+
         return {
             "signal": "WAIT",
             "h4": h4,
             "m15": m15,
-            "m5": m5,
+            "m5": m5
         }
 
-    entry, stop_loss, take_profit = calculate_levels(direction)
+    (
+        entry,
+        stop_loss,
+        take_profit
+    ) = calculate_levels(
+        direction
+    )
 
     return {
         "signal": direction,
@@ -294,22 +498,32 @@ def calculate_signal():
         "m5": m5,
         "entry": entry,
         "stop_loss": stop_loss,
-        "take_profit": take_profit,
+        "take_profit": take_profit
     }
 
 
 # =========================
-# STRIPE
+# STRIPE PAYMENT
 # =========================
 
-def create_checkout_session(telegram_user_id):
+def create_checkout_session(
+    telegram_user_id
+):
 
     if not STRIPE_SECRET_KEY:
-        raise RuntimeError("STRIPE_SECRET_KEY nincs beállítva a Renderben.")
+
+        raise RuntimeError(
+            "STRIPE_SECRET_KEY nincs "
+            "beállítva a Renderben."
+        )
 
     data = {
-        "mode": "subscription",
-        "ui_mode": "hosted_page",
+
+        "mode":
+            "subscription",
+
+        "ui_mode":
+            "hosted_page",
 
         "success_url":
             "https://ai-penzkereso-bot.onrender.com/success",
@@ -336,98 +550,185 @@ def create_checkout_session(telegram_user_id):
             str(telegram_user_id),
 
         "subscription_data[metadata][telegram_user_id]":
-            str(telegram_user_id),
+            str(telegram_user_id)
     }
 
-    body = urllib.parse.urlencode(data).encode()
+    body = (
+        urllib.parse.urlencode(
+            data
+        ).encode()
+    )
 
     request = Request(
-        "https://api.stripe.com/v1/checkout/sessions",
+
+        "https://api.stripe.com/"
+        "v1/checkout/sessions",
+
         data=body,
+
         headers={
             "Authorization":
-                f"Bearer {STRIPE_SECRET_KEY}",
+                "Bearer "
+                + STRIPE_SECRET_KEY,
 
             "Content-Type":
-                "application/x-www-form-urlencoded",
+                "application/"
+                "x-www-form-urlencoded"
         },
-        method="POST",
+
+        method="POST"
     )
-  result = json.loads(
-            response.read().decode()
-        )
-      
+
+    try:
+
+        with urlopen(
+            request,
+            timeout=20
+        ) as response:
+
+            result = json.loads(
+                response.read()
+                .decode()
+            )
+
+    except Exception as error:
+
+        if hasattr(error, "read"):
+
+            stripe_error = (
+                error.read()
+                .decode()
+            )
+
+            raise RuntimeError(
+                stripe_error
+            )
+
+        raise
 
     if "url" not in result:
-        raise RuntimeError(str(result))
+
+        raise RuntimeError(
+            str(result)
+        )
 
     return result["url"]
 
 
 # =========================
-# TELEGRAM COMMANDS
+# TELEGRAM /START
 # =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
+
         "🤖 AI Crypto Bot\n\n"
+
         "📊 BTC/USDT\n\n"
+
         "H4 → fő trend\n"
         "M15 → liquidity sweep\n"
         "M5 → belépési megerősítés\n\n"
+
         "🛑 Strukturális Stop Loss\n"
         "🎯 Take Profit: R:R 1:2\n\n"
-        "⚠️ Jelző mód – valódi megbízást nem küld.\n\n"
+
+        "⚠️ Jelző mód – valódi "
+        "megbízást nem küld.\n\n"
+
         "💎 Premium: /premium"
     )
 
 
-async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# PREMIUM
+# =========================
+
+async def premium(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     try:
 
-        checkout_url = create_checkout_session(
-            update.effective_user.id
+        checkout_url = (
+            create_checkout_session(
+                update.effective_user.id
+            )
         )
 
         await update.message.reply_text(
+
             "💎 AI Pénzkereső Premium\n\n"
-            "📊 BTC/USDT H4/M15/M5 piaci elemzések\n\n"
+
+            "📊 BTC/USDT "
+            "H4/M15/M5 piaci elemzések\n\n"
+
             "💰 Előfizetés: €60 / hét\n\n"
-            "👇 A fizetéshez nyisd meg ezt a Stripe fizetési oldalt:\n\n"
+
+            "👇 Fizetés Stripe-on:\n\n"
+
             f"{checkout_url}"
         )
 
     except Exception as error:
 
         await update.message.reply_text(
-            "❌ A fizetési oldal létrehozása nem sikerült.\n\n"
-            f"Hiba: {error}"
+
+            "❌ A fizetési oldal "
+            "létrehozása nem sikerült.\n\n"
+
+            f"Hiba:\n{error}"
         )
 
 
-async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# PRICE
+# =========================
+
+async def price(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     try:
 
         candles = get_candles(5)
 
-        current_price = candles[-1]["close"]
+        current_price = (
+            candles[-1]["close"]
+        )
 
         await update.message.reply_text(
+
             "📊 BTC/USDT\n\n"
-            f"💰 Aktuális ár: {current_price:,.2f} USDT"
+
+            f"💰 Aktuális ár: "
+            f"{current_price:,.2f} USDT"
         )
 
     except Exception as error:
 
         await update.message.reply_text(
-            f"❌ Hiba az ár lekérésénél:\n{error}"
+
+            "❌ Hiba az ár "
+            "lekérésénél:\n"
+            f"{error}"
         )
 
 
-async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# SIGNAL
+# =========================
+
+async def signal(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     try:
 
@@ -436,58 +737,93 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result["signal"] == "WAIT":
 
             await update.message.reply_text(
-                "📊 XAU/BTC SIGNAL\n\n"
+
+                "📊 BTC/USDT SIGNAL\n\n"
+
                 "⏸ WAIT\n\n"
+
                 f"H4: {result['h4']}\n"
                 f"M15: {result['m15']}\n"
                 f"M5: {result['m5']}\n\n"
+
                 "Nincs teljes megerősítés."
             )
 
             return
 
         await update.message.reply_text(
+
             "📊 BTC/USDT SIGNAL\n\n"
+
             f"🚨 {result['signal']}\n\n"
-            f"💰 Entry: {result['entry']:,.2f}\n"
-            f"🛑 Stop Loss: {result['stop_loss']:,.2f}\n"
-            f"🎯 Take Profit: {result['take_profit']:,.2f}\n\n"
+
+            f"💰 Entry: "
+            f"{result['entry']:,.2f}\n"
+
+            f"🛑 Stop Loss: "
+            f"{result['stop_loss']:,.2f}\n"
+
+            f"🎯 Take Profit: "
+            f"{result['take_profit']:,.2f}\n\n"
+
             f"H4: {result['h4']}\n"
             f"M15: {result['m15']}\n"
             f"M5: {result['m5']}\n\n"
-            "⚠️ SIGNAL ONLY – valódi megbízást nem küld."
+
+            "⚠️ SIGNAL ONLY – valódi "
+            "megbízást nem küld."
         )
 
     except Exception as error:
 
         await update.message.reply_text(
-            f"❌ Jelzés hiba:\n{error}"
+
+            "❌ Jelzés hiba:\n"
+            f"{error}"
         )
 
 
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# STATUS
+# =========================
+
+async def status(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     try:
 
         candles = get_candles(5)
 
-        current_price = candles[-1]["close"]
+        current_price = (
+            candles[-1]["close"]
+        )
 
         await update.message.reply_text(
+
             "🤖 BOT STATUS\n\n"
+
             "🟢 Bot: ONLINE\n"
             "🟢 Kraken kapcsolat: OK\n"
             "📊 Piac: BTC/USDT\n"
             "⏱️ Rendszer: H4/M15/M5\n"
-            f"💰 Aktuális ár: {current_price:,.2f} USDT\n\n"
-            "⚠️ Trading mód: SIGNAL ONLY"
+
+            f"💰 Aktuális ár: "
+            f"{current_price:,.2f} USDT\n\n"
+
+            "⚠️ Trading mód: "
+            "SIGNAL ONLY"
         )
 
     except Exception as error:
 
         await update.message.reply_text(
+
             "🔴 BOT STATUS\n\n"
-            f"Kraken kapcsolat hiba:\n{error}"
+
+            "Kraken kapcsolat hiba:\n"
+            f"{error}"
         )
 
 
@@ -498,8 +834,10 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
 
     if not TOKEN:
+
         raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN nincs beállítva."
+            "TELEGRAM_BOT_TOKEN nincs "
+            "beállítva."
         )
 
     health_thread = threading.Thread(
@@ -509,29 +847,51 @@ def main():
 
     health_thread.start()
 
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(
-        CommandHandler("start", start)
+    app = (
+        Application
+        .builder()
+        .token(TOKEN)
+        .build()
     )
 
     app.add_handler(
-        CommandHandler("premium", premium)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("price", price)
+        CommandHandler(
+            "premium",
+            premium
+        )
     )
 
     app.add_handler(
-        CommandHandler("signal", signal)
+        CommandHandler(
+            "price",
+            price
+        )
     )
 
     app.add_handler(
-        CommandHandler("status", status)
+        CommandHandler(
+            "signal",
+            signal
+        )
     )
 
-    print("AI Penzkereso Bot started.")
+    app.add_handler(
+        CommandHandler(
+            "status",
+            status
+        )
+    )
+
+    print(
+        "AI Penzkereso Bot started."
+    )
 
     app.run_polling(
         drop_pending_updates=True
