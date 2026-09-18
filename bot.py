@@ -329,4 +329,4 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stop_loss is not None:
             message += (
                 f"\n🛑 Stop Loss: {stop_loss:,.2f} USDT\n"
-                f"🎯 Take Profit: {take_profit:,.2f} US
+                f"🎯 Take Profit: {take_profit:,.2f} USDT\n"
