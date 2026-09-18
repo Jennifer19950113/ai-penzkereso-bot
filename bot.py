@@ -921,7 +921,9 @@ async def signal(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-
+    if not is_premium_user(update.effective_user.id):
+        await update.message.reply_text("🔒 Ez a funkció csak Premium előfizetőknek érhető el.\n\n💎 /premium")
+        return
     try:
 
         result = calculate_signal()
