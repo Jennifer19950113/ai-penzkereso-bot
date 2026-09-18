@@ -12,7 +12,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", "10000"))
 
-KRAKEN_URL = "https://api.kraken.com/0/public/OHLC?pair=XBTUSDT&interval=60"
+KRAKEN_BASE = "https://api.kraken.com/0/public/OHLC"
+PAIR = "XBTUSDT"
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -31,24 +32,32 @@ def start_web_server():
     server.serve_forever()
 
 
-def get_candles():
-    with urlopen(KRAKEN_URL, timeout=10) as response:
+def get_candles(interval):
+    url = f"{KRAKEN_BASE}?pair={PAIR}&interval={interval}"
+
+    with urlopen(url, timeout=15) as response:
         data = json.loads(response.read().decode("utf-8"))
 
     if data.get("error"):
         raise RuntimeError(str(data["error"]))
 
     result = data["result"]
-    pair_key = next(key for key in result if key != "last")
+
+    pair_key = next(
+        key for key in result
+        if key != "last"
+    )
 
     candles = []
 
     for candle in result[pair_key]:
         candles.append({
+            "time": int(candle[0]),
             "open": float(candle[1]),
             "high": float(candle[2]),
             "low": float(candle[3]),
-            "close": float(candle[4])
+            "close": float(candle[4]),
+            "volume": float(candle[6])
         })
 
     return candles
@@ -59,12 +68,15 @@ def calculate_ema(values, period):
         return None
 
     multiplier = 2 / (period + 1)
-    value = sum(values[:period]) / period
+
+    ema = sum(values[:period]) / period
 
     for price in values[period:]:
-        value = ((price - value) * multiplier) + value
+        ema = (
+            (price - ema) * multiplier
+        ) + ema
 
-    return value
+    return ema
 
 
 def calculate_rsi(values, period=14):
@@ -89,19 +101,21 @@ def calculate_rsi(values, period=14):
 
     for i in range(period, len(gains)):
         average_gain = (
-            (average_gain * (period - 1)) + gains[i]
+            average_gain * (period - 1)
+            + gains[i]
         ) / period
 
         average_loss = (
-            (average_loss * (period - 1)) + losses[i]
+            average_loss * (period - 1)
+            + losses[i]
         ) / period
 
     if average_loss == 0:
         return 100.0
 
-    relative_strength = average_gain / average_loss
+    rs = average_gain / average_loss
 
-    return 100 - (100 / (1 + relative_strength))
+    return 100 - (100 / (1 + rs))
 
 
 def calculate_atr(candles, period=14):
@@ -126,190 +140,313 @@ def calculate_atr(candles, period=14):
     return sum(true_ranges[-period:]) / period
 
 
-def calculate_signal():
-    candles = get_candles()
+def get_h4_trend():
+    candles = get_candles(240)
 
-    if len(candles) < 200:
-        raise RuntimeError("Nincs elegendő piaci adat.")
+    if len(candles) < 210:
+        raise RuntimeError(
+            "Nincs elegendő H4 adat."
+        )
 
-    closes = [candle["close"] for candle in candles]
-
-    price = closes[-1]
+    closes = [
+        candle["close"]
+        for candle in candles
+    ]
 
     ema20 = calculate_ema(closes, 20)
     ema200 = calculate_ema(closes, 200)
+
+    current = closes[-1]
+
+    if ema20 is None or ema200 is None:
+        raise RuntimeError(
+            "H4 indikátor hiba."
+        )
+
+    if current > ema20 and ema20 > ema200:
+        return "BULLISH", candles, ema20, ema200
+
+    if current < ema20 and ema20 < ema200:
+        return "BEARISH", candles, ema20, ema200
+
+    return "NEUTRAL", candles, ema20, ema200
+
+
+def detect_m15_sweep(direction):
+    candles = get_candles(15)
+
+    if len(candles) < 30:
+        return None, candles
+
+    previous = candles[-2]
+    current = candles[-1]
+
+    recent = candles[-12:-2]
+
+    recent_high = max(
+        candle["high"]
+        for candle in recent
+    )
+
+    recent_low = min(
+        candle["low"]
+        for candle in recent
+    )
+
+    if direction == "BUY":
+
+        swept_liquidity = (
+            previous["low"] < recent_low
+        )
+
+        bullish_reaction = (
+            current["close"] > previous["high"]
+        )
+
+        if swept_liquidity and bullish_reaction:
+            return "BUY", candles
+
+    if direction == "SELL":
+
+        swept_liquidity = (
+            previous["high"] > recent_high
+        )
+
+        bearish_reaction = (
+            current["close"] < previous["low"]
+        )
+
+        if swept_liquidity and bearish_reaction:
+            return "SELL", candles
+
+    return None, candles
+
+
+def confirm_m5(direction):
+    candles = get_candles(5)
+
+    if len(candles) < 50:
+        return False, candles
+
+    closes = [
+        candle["close"]
+        for candle in candles
+    ]
+
+    ema20 = calculate_ema(closes, 20)
+    ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes, 14)
-    atr = calculate_atr(candles, 14)
 
-    if ema20 is None or ema200 is None or rsi is None or atr is None:
-        raise RuntimeError("Az indikátorok kiszámítása sikertelen.")
+    if (
+        ema20 is None
+        or ema50 is None
+        or rsi is None
+    ):
+        return False, candles
 
-    signal = "🟡 WAIT"
-    stop_loss = None
-    take_profit = None
+    current = candles[-1]
 
-    if ema20 > ema200 and price > ema20 and 50 <= rsi <= 70:
-        signal = "🟢 BUY"
-        stop_loss = price - (1.5 * atr)
-        take_profit = price + (3.0 * atr)
+    if direction == "BUY":
 
-    elif ema20 < ema200 and price < ema20 and 30 <= rsi <= 50:
-        signal = "🔴 SELL"
-        stop_loss = price + (1.5 * atr)
-        take_profit = price - (3.0 * atr)
+        confirmation = (
+            current["close"] > ema20
+            and ema20 > ema50
+            and rsi >= 50
+            and rsi <= 75
+        )
 
-    return (
-        signal,
-        price,
-        ema20,
-        ema200,
-        rsi,
-        atr,
-        stop_loss,
-        take_profit
+        return confirmation, candles
+
+    if direction == "SELL":
+
+        confirmation = (
+            current["close"] < ema20
+            and ema20 < ema50
+            and rsi >= 25
+            and rsi <= 50
+        )
+
+        return confirmation, candles
+
+    return False, candles
+
+
+def calculate_trade_levels(
+    direction,
+    m5_candles
+):
+    recent = m5_candles[-6:]
+
+    entry = recent[-1]["close"]
+
+    atr = calculate_atr(
+        m5_candles,
+        14
     )
 
+    if atr is None:
+        return None
 
-def run_backtest():
-    candles = get_candles()
+    recent_high = max(
+        candle["high"]
+        for candle in recent[:-1]
+    )
 
-    if len(candles) < 250:
-        return "❌ Nincs elegendő történelmi adat a backtesthez."
+    recent_low = min(
+        candle["low"]
+        for candle in recent[:-1]
+    )
 
-    starting_balance = 10000.0
-    balance = starting_balance
+    if direction == "BUY":
 
-    risk_per_trade = 0.01
+        stop_loss = recent_low - (
+            atr * 0.20
+        )
 
-    wins = 0
-    losses = 0
-    trades = 0
-    unresolved = 0
+        risk = entry - stop_loss
 
-    for i in range(200, len(candles) - 5):
-        history = candles[:i]
-        closes = [c["close"] for c in history]
+        if risk <= 0:
+            return None
 
-        ema20 = calculate_ema(closes, 20)
-        ema200 = calculate_ema(closes, 200)
-        rsi_value = calculate_rsi(closes, 14)
-        atr_value = calculate_atr(history, 14)
+        take_profit = entry + (
+            risk * 2
+        )
 
-        if (
-            ema20 is None
-            or ema200 is None
-            or rsi_value is None
-            or atr_value is None
-        ):
-            continue
-
-        entry = candles[i]["close"]
-
-        if (
-            ema20 > ema200
-            and entry > ema20
-            and 50 <= rsi_value <= 70
-        ):
-            direction = "BUY"
-            stop_loss = entry - (1.5 * atr_value)
-            take_profit = entry + (3.0 * atr_value)
-
-        elif (
-            ema20 < ema200
-            and entry < ema20
-            and 30 <= rsi_value <= 50
-        ):
-            direction = "SELL"
-            stop_loss = entry + (1.5 * atr_value)
-            take_profit = entry - (3.0 * atr_value)
-
-        else:
-            continue
-
-        trades += 1
-
-        risk_amount = balance * risk_per_trade
-        reward_amount = risk_amount * 2
-
-        result = None
-
-        for future in candles[i + 1:i + 6]:
-
-            if direction == "BUY":
-
-                if future["low"] <= stop_loss:
-                    result = "loss"
-                    break
-
-                if future["high"] >= take_profit:
-                    result = "win"
-                    break
-
-            else:
-
-                if future["high"] >= stop_loss:
-                    result = "loss"
-                    break
-
-                if future["low"] <= take_profit:
-                    result = "win"
-                    break
-
-        if result == "win":
-            wins += 1
-            balance += reward_amount
-
-        elif result == "loss":
-            losses += 1
-            balance -= risk_amount
-
-        else:
-            unresolved += 1
-
-    profit = balance - starting_balance
-
-    if trades > 0:
-        win_rate = (wins / trades) * 100
     else:
-        win_rate = 0
+
+        stop_loss = recent_high + (
+            atr * 0.20
+        )
+
+        risk = stop_loss - entry
+
+        if risk <= 0:
+            return None
+
+        take_profit = entry - (
+            risk * 2
+        )
 
     return (
-        "📊 BTC/USDT BACKTEST V2\n\n"
-        f"💰 Kezdő egyenleg: {starting_balance:,.2f} USDT\n"
-        f"💰 Számított egyenleg: {balance:,.2f} USDT\n"
-        f"📈 Eredmény: {profit:,.2f} USDT\n\n"
-        f"📊 Ügyletek: {trades}\n"
-        f"🟢 Nyerő: {wins}\n"
-        f"🔴 Vesztes: {losses}\n"
-        f"⚪ Nem eldöntött: {unresolved}\n"
-        f"🎯 Találati arány: {win_rate:.2f}%\n\n"
-        "⚖️ Kockázat/ügylet: 1%\n"
-        "📐 Cél R:R: 1:2\n\n"
-        "⚠️ Ez történelmi szimuláció, "
-        "nem garantálja a jövőbeli eredményt."
+        entry,
+        stop_loss,
+        take_profit,
+        atr
     )
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def calculate_signal():
+    trend, h4, h4_ema20, h4_ema200 = (
+        get_h4_trend()
+    )
+
+    if trend == "NEUTRAL":
+        return {
+            "signal": "WAIT",
+            "reason": "H4 trend semleges.",
+            "trend": trend
+        }
+
+    direction = (
+        "BUY"
+        if trend == "BULLISH"
+        else "SELL"
+    )
+
+    m15_signal, m15_candles = (
+        detect_m15_sweep(direction)
+    )
+
+    if m15_signal is None:
+        return {
+            "signal": "WAIT",
+            "reason": (
+                "H4 trend megvan, "
+                "de nincs M15 liquidity sweep."
+            ),
+            "trend": trend
+        }
+
+    confirmed, m5_candles = (
+        confirm_m5(direction)
+    )
+
+    if not confirmed:
+        return {
+            "signal": "WAIT",
+            "reason": (
+                "M15 sweep megvan, "
+                "de nincs M5 megerősítés."
+            ),
+            "trend": trend
+        }
+
+    levels = calculate_trade_levels(
+        direction,
+        m5_candles
+    )
+
+    if levels is None:
+        return {
+            "signal": "WAIT",
+            "reason": (
+                "Nem számítható biztonságos "
+                "SL/TP."
+            ),
+            "trend": trend
+        }
+
+    entry, stop_loss, take_profit, atr = (
+        levels
+    )
+
+    return {
+        "signal": direction,
+        "reason": (
+            "H4 trend + M15 sweep + "
+            "M5 megerősítés"
+        ),
+        "trend": trend,
+        "entry": entry,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "atr": atr,
+        "h4_ema20": h4_ema20,
+        "h4_ema200": h4_ema200
+    }
+
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     await update.message.reply_text(
         "🤖 AI Crypto Bot\n\n"
-        "📊 Kraken BTC/USDT\n"
-        "📈 EMA20 + EMA200\n"
-        "📉 RSI + ATR\n"
-        "🛑 Stop Loss / 🎯 Take Profit\n"
-        "📊 /backtest – történelmi szimuláció\n\n"
-        "Valós piaci adatokat használunk."
+        "📊 BTC/USDT\n\n"
+        "H4 → fő trend\n"
+        "M15 → liquidity sweep\n"
+        "M5 → belépési megerősítés\n\n"
+        "🛑 Strukturális Stop Loss\n"
+        "🎯 Take Profit: R:R 1:2\n\n"
+        "⚠️ Jelző mód – valódi "
+        "megbízást nem küld."
     )
 
 
-async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def price(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     try:
-        candles = get_candles()
+        candles = get_candles(5)
+
         price_value = candles[-1]["close"]
 
         await update.message.reply_text(
-            f"📊 Kraken BTC/USDT\n\n"
-            f"💰 Ár: {price_value:,.2f} USDT"
+            "📊 BTC/USDT\n\n"
+            f"💰 Ár: "
+            f"{price_value:,.2f} USDT\n\n"
+            "🟢 Kraken adat"
         )
 
     except Exception as error:
@@ -318,59 +455,87 @@ async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def signal(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     try:
-        (
-            signal_value,
-            price_value,
-            ema20,
-            ema200,
-            rsi,
-            atr,
-            stop_loss,
-            take_profit
-        ) = calculate_signal()
+        result = calculate_signal()
+
+        signal_value = result["signal"]
+
+        if signal_value == "BUY":
+            emoji = "🟢"
+        elif signal_value == "SELL":
+            emoji = "🔴"
+        else:
+            emoji = "🟡"
 
         message = (
-            "📊 BTC/USDT STRATÉGIA\n\n"
-            f"{signal_value}\n\n"
-            f"💰 Ár: {price_value:,.2f} USDT\n"
-            f"📈 EMA20: {ema20:,.2f}\n"
-            f"📊 EMA200: {ema200:,.2f}\n"
-            f"📉 RSI: {rsi:.2f}\n"
-            f"📐 ATR: {atr:,.2f}\n"
+            "📊 BTC/USDT SIGNAL\n\n"
+            f"{emoji} {signal_value}\n\n"
+            f"📈 H4 trend: "
+            f"{result['trend']}\n\n"
+            f"🧠 Indok: "
+            f"{result['reason']}\n"
         )
 
-        if stop_loss is not None:
+        if signal_value in ("BUY", "SELL"):
+
             message += (
-                f"\n🛑 Stop Loss: {stop_loss:,.2f} USDT\n"
-                f"🎯 Take Profit: {take_profit:,.2f} USDT\n"
-                "📐 R:R = 1:2\n"
+                "\n"
+                f"💰 Belépő: "
+                f"{result['entry']:,.2f} USDT\n"
+                f"🛑 Stop Loss: "
+                f"{result['stop_loss']:,.2f} USDT\n"
+                f"🎯 Take Profit: "
+                f"{result['take_profit']:,.2f} USDT\n"
+                f"📐 R:R = 1:2\n"
+                f"📊 ATR: "
+                f"{result['atr']:,.2f}\n"
             )
-        else:
-            message += "\n⏸️ Nincs ügylet – WAIT\n"
 
         message += (
-            "\n🟢 Valós Kraken adat\n"
-            "⚠️ Jelenleg nincs automatikus valódi megbízás."
+            "\n"
+            "⏱️ Idősíkok: H4 / M15 / M5\n"
+            "🟢 Valós Kraken adat\n"
+            "⚠️ Nincs automatikus valódi "
+            "megbízás."
         )
 
-        await update.message.reply_text(message)
+        await update.message.reply_text(
+            message
+        )
 
     except Exception as error:
         await update.message.reply_text(
-            f"❌ Stratégiai hiba:\n{error}"
+            f"❌ Signal hiba:\n{error}"
         )
 
 
-async def backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def status(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     try:
-        result = run_backtest()
-        await update.message.reply_text(result)
+        candles = get_candles(5)
+
+        price_value = candles[-1]["close"]
+
+        await update.message.reply_text(
+            "🤖 BOT STATUS\n\n"
+            "🟢 Bot: ONLINE\n"
+            "🟢 Kraken kapcsolat: OK\n"
+            "📊 Piac: BTC/USDT\n"
+            "⏱️ Rendszer: H4/M15/M5\n"
+            "💰 Aktuális ár: "
+            f"{price_value:,.2f} USDT\n\n"
+            "⚠️ Trading mód: SIGNAL ONLY"
+        )
 
     except Exception as error:
         await update.message.reply_text(
-            f"❌ Backtest hiba:\n{error}"
+            f"🔴 Bot hiba:\n{error}"
         )
 
 
@@ -385,12 +550,28 @@ async def main():
         daemon=True
     ).start()
 
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application
+        .builder()
+        .token(TOKEN)
+        .build()
+    )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("price", price))
-    app.add_handler(CommandHandler("signal", signal))
-    app.add_handler(CommandHandler("backtest", backtest))
+    app.add_handler(
+        CommandHandler("start", start)
+    )
+
+    app.add_handler(
+        CommandHandler("price", price)
+    )
+
+    app.add_handler(
+        CommandHandler("signal", signal)
+    )
+
+    app.add_handler(
+        CommandHandler("status", status)
+    )
 
     await app.initialize()
     await app.start()
