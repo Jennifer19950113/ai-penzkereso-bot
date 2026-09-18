@@ -51,7 +51,9 @@ def activate_premium(user_id):
     users = load_premium_users()
     users[str(user_id)] = time.time() + (7 * 24 * 60 * 60)
     save_premium_users(users)
-    class HealthHandler(BaseHTTPRequestHandler):
+
+
+class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/success":
@@ -113,7 +115,7 @@ def activate_premium(user_id):
         self.wfile.write(
             b"AI Penzkereso Bot OK"
         )
-            def do_POST(self):
+         def do_POST(self):
         if self.path != "/stripe/webhook":
             self.send_response(404)
             self.end_headers()
