@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import json
+import urllib.parse
 from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
