@@ -41,15 +41,17 @@ def get_candles():
     result = data["result"]
     pair_key = next(key for key in result if key != "last")
 
-    return [
-        {
+    candles = []
+
+    for candle in result[pair_key]:
+        candles.append({
             "open": float(candle[1]),
             "high": float(candle[2]),
             "low": float(candle[3]),
             "close": float(candle[4])
-        }
-        for candle in result[pair_key]
-    ]
+        })
+
+    return candles
 
 
 def calculate_ema(values, period):
@@ -193,17 +195,30 @@ def run_backtest():
         rsi_value = calculate_rsi(closes, 14)
         atr_value = calculate_atr(history, 14)
 
-        if None in (ema20, ema200, rsi_value, atr_value):
+        if (
+            ema20 is None
+            or ema200 is None
+            or rsi_value is None
+            or atr_value is None
+        ):
             continue
 
         entry = candles[i]["close"]
 
-        if ema20 > ema200 and entry > ema20 and 50 <= rsi_value <= 70:
+        if (
+            ema20 > ema200
+            and entry > ema20
+            and 50 <= rsi_value <= 70
+        ):
             direction = "BUY"
             stop_loss = entry - (1.5 * atr_value)
             take_profit = entry + (3.0 * atr_value)
 
-        elif ema20 < ema200 and entry < ema20 and 30 <= rsi_value <= 50:
+        elif (
+            ema20 < ema200
+            and entry < ema20
+            and 30 <= rsi_value <= 50
+        ):
             direction = "SELL"
             stop_loss = entry + (1.5 * atr_value)
             take_profit = entry - (3.0 * atr_value)
@@ -327,10 +342,64 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if stop_loss is not None:
-    message += (
-        f"\n🛑 Stop Loss: {stop_loss:,.2f} USDT\n"
-        f"🎯 Take Profit: {take_profit:,.2f} USDT\n"
-        "📐 R:R = 1:2\n"
-    )
+            message += (
                 f"\n🛑 Stop Loss: {stop_loss:,.2f} USDT\n"
                 f"🎯 Take Profit: {take_profit:,.2f} USDT\n"
+                "📐 R:R = 1:2\n"
+            )
+        else:
+            message += "\n⏸️ Nincs ügylet – WAIT\n"
+
+        message += (
+            "\n🟢 Valós Kraken adat\n"
+            "⚠️ Jelenleg nincs automatikus valódi megbízás."
+        )
+
+        await update.message.reply_text(message)
+
+    except Exception as error:
+        await update.message.reply_text(
+            f"❌ Stratégiai hiba:\n{error}"
+        )
+
+
+async def backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        result = run_backtest()
+        await update.message.reply_text(result)
+
+    except Exception as error:
+        await update.message.reply_text(
+            f"❌ Backtest hiba:\n{error}"
+        )
+
+
+async def main():
+    if not TOKEN:
+        raise RuntimeError(
+            "TELEGRAM_BOT_TOKEN nincs beállítva."
+        )
+
+    threading.Thread(
+        target=start_web_server,
+        daemon=True
+    ).start()
+
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("price", price))
+    app.add_handler(CommandHandler("signal", signal))
+    app.add_handler(CommandHandler("backtest", backtest))
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    print("AI Crypto Bot fut.")
+
+    await asyncio.Event().wait()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
