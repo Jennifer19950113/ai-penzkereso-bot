@@ -176,9 +176,13 @@ def run_backtest():
 
     starting_balance = 10000.0
     balance = starting_balance
+
+    risk_per_trade = 0.01
+
     wins = 0
     losses = 0
     trades = 0
+    unresolved = 0
 
     for i in range(200, len(candles) - 5):
         history = candles[:i]
@@ -195,23 +199,29 @@ def run_backtest():
         entry = candles[i]["close"]
 
         if ema20 > ema200 and entry > ema20 and 50 <= rsi_value <= 70:
+            direction = "BUY"
             stop_loss = entry - (1.5 * atr_value)
             take_profit = entry + (3.0 * atr_value)
-            direction = "BUY"
 
         elif ema20 < ema200 and entry < ema20 and 30 <= rsi_value <= 50:
+            direction = "SELL"
             stop_loss = entry + (1.5 * atr_value)
             take_profit = entry - (3.0 * atr_value)
-            direction = "SELL"
 
         else:
             continue
 
         trades += 1
+
+        risk_amount = balance * risk_per_trade
+        reward_amount = risk_amount * 2
+
         result = None
 
         for future in candles[i + 1:i + 6]:
+
             if direction == "BUY":
+
                 if future["low"] <= stop_loss:
                     result = "loss"
                     break
@@ -221,6 +231,7 @@ def run_backtest():
                     break
 
             else:
+
                 if future["high"] >= stop_loss:
                     result = "loss"
                     break
@@ -231,23 +242,35 @@ def run_backtest():
 
         if result == "win":
             wins += 1
-            balance *= 1.02
+            balance += reward_amount
 
         elif result == "loss":
             losses += 1
-            balance *= 0.99
+            balance -= risk_amount
+
+        else:
+            unresolved += 1
 
     profit = balance - starting_balance
 
+    if trades > 0:
+        win_rate = (wins / trades) * 100
+    else:
+        win_rate = 0
+
     return (
-        "📊 BTC/USDT BACKTEST\n\n"
+        "📊 BTC/USDT BACKTEST V2\n\n"
         f"💰 Kezdő egyenleg: {starting_balance:,.2f} USDT\n"
         f"💰 Számított egyenleg: {balance:,.2f} USDT\n"
         f"📈 Eredmény: {profit:,.2f} USDT\n\n"
         f"📊 Ügyletek: {trades}\n"
         f"🟢 Nyerő: {wins}\n"
-        f"🔴 Vesztes: {losses}\n\n"
-        "⚠️ Ez történelmi adatokon végzett szimuláció, "
+        f"🔴 Vesztes: {losses}\n"
+        f"⚪ Nem eldöntött: {unresolved}\n"
+        f"🎯 Találati arány: {win_rate:.2f}%\n\n"
+        "⚖️ Kockázat/ügylet: 1%\n"
+        "📐 Cél R:R: 1:2\n\n"
+        "⚠️ Ez történelmi szimuláció, "
         "nem garantálja a jövőbeli eredményt."
     )
 
@@ -306,60 +329,4 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stop_loss is not None:
             message += (
                 f"\n🛑 Stop Loss: {stop_loss:,.2f} USDT\n"
-                f"🎯 Take Profit: {take_profit:,.2f} USDT\n"
-                "📐 R:R = 1:2\n"
-            )
-        else:
-            message += "\n⏸️ Nincs ügylet – WAIT\n"
-
-        message += (
-            "\n🟢 Valós Kraken adat\n"
-            "⚠️ Jelenleg nincs automatikus valódi megbízás."
-        )
-
-        await update.message.reply_text(message)
-
-    except Exception as error:
-        await update.message.reply_text(
-            f"❌ Stratégiai hiba:\n{error}"
-        )
-
-
-async def backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        result = run_backtest()
-        await update.message.reply_text(result)
-
-    except Exception as error:
-        await update.message.reply_text(
-            f"❌ Backtest hiba:\n{error}"
-        )
-
-
-async def main():
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN nincs beállítva.")
-
-    threading.Thread(
-        target=start_web_server,
-        daemon=True
-    ).start()
-
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("price", price))
-    app.add_handler(CommandHandler("signal", signal))
-    app.add_handler(CommandHandler("backtest", backtest))
-
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-
-    print("AI Crypto Bot fut.")
-
-    await asyncio.Event().wait()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+                f"🎯 Take Profit: {take_profit:,.2f} US
