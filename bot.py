@@ -1,4 +1,4 @@
-import ost
+import os
 import asyncio
 import threading
 import json
