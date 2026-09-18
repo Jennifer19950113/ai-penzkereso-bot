@@ -3,7 +3,7 @@ import asyncio
 import threading
 import json
 import urllib.parse
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update
