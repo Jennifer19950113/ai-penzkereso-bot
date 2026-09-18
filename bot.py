@@ -112,15 +112,15 @@ class HealthHandler(BaseHTTPRequestHandler):
         )
         self.end_headers()
 
-        self.wfile.write(
+                self.wfile.write(
             b"AI Penzkereso Bot OK"
         )
-         def do_POST(self):
+
+    def do_POST(self):
         if self.path != "/stripe/webhook":
             self.send_response(404)
             self.end_headers()
             return
-
         try:
             content_length = int(
                 self.headers.get("Content-Length", "0")
