@@ -2,14 +2,13 @@ import os
 import json
 import threading
 import time
-import hmac
-import hashlib
 import urllib.parse
 from urllib.request import urlopen, Request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", "10000"))
@@ -18,28 +17,42 @@ KRAKEN_BASE = "https://api.kraken.com/0/public/OHLC"
 PAIR = "XBTUSDT"
 
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
 PREMIUM_FILE = "premium_users.json"
 STRIPE_PRICE_ID = "price_1UH2Bc5dT7Ky153dsKxDE1y2"
 
 
+# =========================
+# PREMIUM USERS
+# =========================
+
 def load_premium_users():
     try:
-        with open(PREMIUM_FILE, "r", encoding="utf-8") as f:
+        with open(
+            PREMIUM_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
             return json.load(f)
     except Exception:
         return {}
 
 
 def save_premium_users(users):
-    with open(PREMIUM_FILE, "w", encoding="utf-8") as f:
+    with open(
+        PREMIUM_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
         json.dump(users, f)
 
 
 def is_premium_user(user_id):
     users = load_premium_users()
-    expiry = users.get(str(user_id))
+
+    expiry = users.get(
+        str(user_id)
+    )
 
     if not expiry:
         return False
@@ -49,13 +62,23 @@ def is_premium_user(user_id):
 
 def activate_premium(user_id):
     users = load_premium_users()
-    users[str(user_id)] = time.time() + (7 * 24 * 60 * 60)
+
+    users[str(user_id)] = (
+        time.time()
+        + (7 * 24 * 60 * 60)
+    )
+
     save_premium_users(users)
 
+
+# =========================
+# WEB SERVER
+# =========================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         if self.path == "/success":
             self.send_response(200)
             self.send_header(
@@ -79,6 +102,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 </html>
                 """.encode("utf-8")
             )
+
             return
 
         if self.path == "/cancel":
@@ -103,6 +127,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 </html>
                 """.encode("utf-8")
             )
+
             return
 
         self.send_response(200)
@@ -112,18 +137,23 @@ class HealthHandler(BaseHTTPRequestHandler):
         )
         self.end_headers()
 
-                self.wfile.write(
+        self.wfile.write(
             b"AI Penzkereso Bot OK"
         )
 
     def do_POST(self):
+
         if self.path != "/stripe/webhook":
             self.send_response(404)
             self.end_headers()
             return
+
         try:
             content_length = int(
-                self.headers.get("Content-Length", "0")
+                self.headers.get(
+                    "Content-Length",
+                    "0"
+                )
             )
 
             body = self.rfile.read(
@@ -145,13 +175,16 @@ class HealthHandler(BaseHTTPRequestHandler):
             )
 
             if event_type == "checkout.session.completed":
+
                 session = (
-                    event.get("data", {})
+                    event
+                    .get("data", {})
                     .get("object", {})
                 )
 
                 telegram_user_id = (
-                    session.get("metadata", {})
+                    session
+                    .get("metadata", {})
                     .get("telegram_user_id")
                 )
 
@@ -162,6 +195,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 )
 
                 if telegram_user_id:
+
                     activate_premium(
                         telegram_user_id
                     )
@@ -183,6 +217,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             )
 
         except Exception as error:
+
             print(
                 "Stripe webhook error:",
                 error
@@ -191,22 +226,30 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.end_headers()
 
-    def log_message(self, format, *args):
+    def log_message(
+        self,
+        format,
+        *args
+    ):
         return
 
 
 def start_health_server():
+
     server = HTTPServer(
         ("0.0.0.0", PORT),
         HealthHandler
     )
 
     server.serve_forever()
-    # =========================
+
+
+# =========================
 # KRAKEN
 # =========================
 
 def get_candles(interval):
+
     url = (
         f"{KRAKEN_BASE}"
         f"?pair={PAIR}"
@@ -217,6 +260,7 @@ def get_candles(interval):
         url,
         timeout=15
     ) as response:
+
         data = json.loads(
             response.read().decode()
         )
@@ -247,11 +291,14 @@ def get_candles(interval):
         }
         for c in candles
     ]
-    # =========================
+
+
+# =========================
 # INDICATORS
 # =========================
 
 def ema(values, period):
+
     if len(values) < period:
         return None
 
@@ -263,6 +310,7 @@ def ema(values, period):
     )
 
     for price in values[period:]:
+
         value = (
             (price - value)
             * multiplier
@@ -273,6 +321,7 @@ def ema(values, period):
 
 
 def rsi(values, period=14):
+
     if len(values) < period + 1:
         return None
 
@@ -280,6 +329,7 @@ def rsi(values, period=14):
     losses = []
 
     for i in range(1, len(values)):
+
         change = (
             values[i]
             - values[i - 1]
@@ -290,7 +340,9 @@ def rsi(values, period=14):
             losses.append(0)
         else:
             gains.append(0)
-            losses.append(abs(change))
+            losses.append(
+                abs(change)
+            )
 
     avg_gain = (
         sum(gains[:period])
@@ -306,6 +358,7 @@ def rsi(values, period=14):
         period,
         len(gains)
     ):
+
         avg_gain = (
             (
                 avg_gain
@@ -333,6 +386,7 @@ def rsi(values, period=14):
 
 
 def atr(candles, period=14):
+
     if len(candles) < period + 1:
         return None
 
@@ -342,6 +396,7 @@ def atr(candles, period=14):
         1,
         len(candles)
     ):
+
         high = candles[i]["high"]
         low = candles[i]["low"]
 
@@ -364,14 +419,19 @@ def atr(candles, period=14):
         true_ranges.append(tr)
 
     return (
-        sum(true_ranges[-period:])
+        sum(
+            true_ranges[-period:]
+        )
         / period
     )
-    # =========================
+
+
+# =========================
 # H4 TREND
 # =========================
 
 def get_h4_trend():
+
     candles = get_candles(240)
 
     closes = [
@@ -410,11 +470,14 @@ def get_h4_trend():
         return "BEARISH"
 
     return "NEUTRAL"
-    # =========================
+
+
+# =========================
 # M15 LIQUIDITY SWEEP
 # =========================
 
 def get_m15_sweep():
+
     candles = get_candles(15)
 
     if len(candles) < 12:
@@ -422,6 +485,7 @@ def get_m15_sweep():
 
     previous = candles[-2]
     current = candles[-1]
+
     recent = candles[-12:-2]
 
     recent_low = min(
@@ -449,11 +513,14 @@ def get_m15_sweep():
         return "SELL"
 
     return "NONE"
-    # =========================
+
+
+# =========================
 # M5 CONFIRMATION
 # =========================
 
 def get_m5_confirmation():
+
     candles = get_candles(5)
 
     closes = [
@@ -500,11 +567,14 @@ def get_m5_confirmation():
         return "SELL"
 
     return "NONE"
-    # =========================
+
+
+# =========================
 # TRADE LEVELS
 # =========================
 
 def calculate_levels(direction):
+
     candles = get_candles(5)
 
     current_price = (
@@ -524,6 +594,7 @@ def calculate_levels(direction):
         )
 
     if direction == "BUY":
+
         swing_low = min(
             c["low"]
             for c in recent
@@ -545,6 +616,7 @@ def calculate_levels(direction):
         )
 
     else:
+
         swing_high = max(
             c["high"]
             for c in recent
@@ -570,11 +642,14 @@ def calculate_levels(direction):
         stop_loss,
         take_profit
     )
-    # =========================
+
+
+# =========================
 # SIGNAL
 # =========================
 
 def calculate_signal():
+
     h4 = get_h4_trend()
     m15 = get_m15_sweep()
     m5 = get_m5_confirmation()
@@ -594,6 +669,7 @@ def calculate_signal():
         direction = "SELL"
 
     else:
+
         return {
             "signal": "WAIT",
             "h4": h4,
@@ -618,20 +694,27 @@ def calculate_signal():
         "stop_loss": stop_loss,
         "take_profit": take_profit
     }
-    # =========================
+
+
+# =========================
 # STRIPE PAYMENT
 # =========================
 
-def create_checkout_session(telegram_user_id):
+def create_checkout_session(
+    telegram_user_id
+):
+
     if not STRIPE_SECRET_KEY:
+
         raise RuntimeError(
             "STRIPE_SECRET_KEY nincs "
             "beállítva a Renderben."
         )
 
     data = {
-        "mode": "subscription",
-        "ui_mode": "hosted_page",
+
+        "mode":
+            "subscription",
 
         "success_url":
             "https://ai-penzkereso-bot.onrender.com/success",
@@ -666,6 +749,7 @@ def create_checkout_session(telegram_user_id):
     ).encode()
 
     request = Request(
+
         "https://api.stripe.com/"
         "v1/checkout/sessions",
 
@@ -685,20 +769,28 @@ def create_checkout_session(telegram_user_id):
     )
 
     try:
+
         with urlopen(
             request,
             timeout=20
         ) as response:
 
             result = json.loads(
-                response.read()
+                response
+                .read()
                 .decode()
             )
 
     except Exception as error:
-        if hasattr(error, "read"):
+
+        if hasattr(
+            error,
+            "read"
+        ):
+
             stripe_error = (
-                error.read()
+                error
+                .read()
                 .decode()
             )
 
@@ -709,29 +801,44 @@ def create_checkout_session(telegram_user_id):
         raise
 
     if "url" not in result:
+
         raise RuntimeError(
             str(result)
         )
 
     return result["url"]
-    # =========================
+
+
+# =========================
 # TELEGRAM /START
 # =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     await update.message.reply_text(
-        "🤖 AI Crypto Bot\n\n"
+
+        "🤖 AI Pénzkereső Bot\n\n"
+
         "📊 BTC/USDT\n\n"
+
         "H4 → fő trend\n"
         "M15 → liquidity sweep\n"
         "M5 → belépési megerősítés\n\n"
+
         "🛑 Strukturális Stop Loss\n"
         "🎯 Take Profit: R:R 1:2\n\n"
+
         "⚠️ Jelző mód – valódi "
         "megbízást nem küld.\n\n"
+
         "💎 Premium: /premium"
     )
-    # =========================
+
+
+# =========================
 # PREMIUM
 # =========================
 
@@ -739,7 +846,9 @@ async def premium(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     try:
+
         checkout_url = (
             create_checkout_session(
                 update.effective_user.id
@@ -747,21 +856,31 @@ async def premium(
         )
 
         await update.message.reply_text(
+
             "💎 AI Pénzkereső Premium\n\n"
+
             "📊 BTC/USDT "
             "H4/M15/M5 piaci elemzések\n\n"
+
             "💰 Előfizetés: €60 / hét\n\n"
+
             "👇 Fizetés Stripe-on:\n\n"
+
             f"{checkout_url}"
         )
 
     except Exception as error:
+
         await update.message.reply_text(
+
             "❌ A fizetési oldal "
             "létrehozása nem sikerült.\n\n"
+
             f"Hiba:\n{error}"
         )
-        # =========================
+
+
+# =========================
 # PRICE
 # =========================
 
@@ -769,22 +888,32 @@ async def price(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     try:
+
         candles = get_candles(5)
-        current_price = candles[-1]["close"]
+
+        current_price = (
+            candles[-1]["close"]
+        )
 
         await update.message.reply_text(
+
             "📈 BTC/USDT\n\n"
-            f"💰 Aktuális ár: {current_price:.2f}"
+            f"💰 Aktuális ár: "
+            f"{current_price:.2f}"
         )
 
     except Exception as error:
+
         await update.message.reply_text(
+
             "❌ Nem sikerült lekérni az árat.\n\n"
             f"Hiba: {error}"
         )
-        ```
-        # =========================
+
+
+# =========================
 # SIGNAL
 # =========================
 
@@ -792,36 +921,57 @@ async def signal(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     try:
+
         result = calculate_signal()
 
         if result["signal"] == "WAIT":
+
             await update.message.reply_text(
+
                 "⏳ Jelenleg nincs megfelelő jel.\n\n"
+
                 f"H4: {result['h4']}\n"
                 f"M15: {result['m15']}\n"
                 f"M5: {result['m5']}"
             )
+
             return
 
         await update.message.reply_text(
+
             "🚨 BTC/USDT SIGNAL\n\n"
-            f"📌 Irány: {result['signal']}\n"
-            f"💰 Belépő: {result['entry']:.2f}\n"
-            f"🛑 Stop Loss: {result['stop_loss']:.2f}\n"
-            f"🎯 Take Profit: {result['take_profit']:.2f}\n\n"
+
+            f"📌 Irány: "
+            f"{result['signal']}\n"
+
+            f"💰 Belépő: "
+            f"{result['entry']:.2f}\n"
+
+            f"🛑 Stop Loss: "
+            f"{result['stop_loss']:.2f}\n"
+
+            f"🎯 Take Profit: "
+            f"{result['take_profit']:.2f}\n\n"
+
             f"H4: {result['h4']}\n"
             f"M15: {result['m15']}\n"
             f"M5: {result['m5']}\n\n"
+
             "⚠️ Ez jelzés, nem automatikus megbízás."
         )
 
     except Exception as error:
+
         await update.message.reply_text(
+
             "❌ A jelzés lekérése nem sikerült.\n\n"
             f"Hiba: {error}"
         )
-        # =========================
+
+
+# =========================
 # STATUS
 # =========================
 
@@ -829,8 +979,11 @@ async def status(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     await update.message.reply_text(
+
         "🤖 AI Pénzkereső Bot\n\n"
+
         "🟢 Állapot: online\n"
         "📊 Piac: BTC/USDT\n"
         "⏱ Idősíkok: H4 / M15 / M5\n"
@@ -838,11 +991,14 @@ async def status(
         "📈 Ár: /price\n"
         "🚨 Jelzés: /signal"
     )
-    # =========================
+
+
+# =========================
 # MAIN
 # =========================
 
 def main():
+
     threading.Thread(
         target=start_health_server,
         daemon=True
@@ -855,26 +1011,43 @@ def main():
     )
 
     application.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     application.add_handler(
-        CommandHandler("premium", premium)
+        CommandHandler(
+            "premium",
+            premium
+        )
     )
 
     application.add_handler(
-        CommandHandler("price", price)
+        CommandHandler(
+            "price",
+            price
+        )
     )
 
     application.add_handler(
-        CommandHandler("signal", signal)
+        CommandHandler(
+            "signal",
+            signal
+        )
     )
 
     application.add_handler(
-        CommandHandler("status", status)
+        CommandHandler(
+            "status",
+            status
+        )
     )
 
-    print("AI Pénzkereső Bot elindult.")
+    print(
+        "AI Pénzkereső Bot elindult."
+    )
 
     application.run_polling()
 
