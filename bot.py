@@ -18,7 +18,33 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 PREMIUM_FILE = "premium_users.json"
 STRIPE_PRICE_ID = "price_1UH2Bc5dT7Ky153dsKxDE1y2"
 # =========================
-# HEALTH + STRIPE WEBHOOK
+def load_premium_users():
+    try:
+        with open(PREMIUM_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_premium_users(users):
+    with open(PREMIUM_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f)
+
+
+def is_premium_user(user_id):
+    users = load_premium_users()
+    expiry = users.get(str(user_id))
+
+    if not expiry:
+        return False
+
+    return time.time() < expiry
+
+
+def activate_premium(user_id):
+    users = load_premium_users()
+    users[str(user_id)] = time.time() + (7 * 24 * 60 * 60)
+    save_premium_users(users)# HEALTH + STRIPE WEBHOOK
 # =========================
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
