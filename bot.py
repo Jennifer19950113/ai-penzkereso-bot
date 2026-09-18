@@ -1,4 +1,5 @@
-import os
+
+        import os
 import asyncio
 import threading
 import json
@@ -7,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", "10000"))
@@ -40,8 +42,6 @@ def get_candles():
     result = data["result"]
     pair_key = next(key for key in result if key != "last")
 
-    candles = result[pair_key]
-
     return [
         {
             "open": float(candle[1]),
@@ -49,7 +49,7 @@ def get_candles():
             "low": float(candle[3]),
             "close": float(candle[4])
         }
-        for candle in candles
+        for candle in result[pair_key]
     ]
 
 
@@ -157,7 +157,100 @@ def calculate_signal():
         stop_loss = price + (1.5 * atr)
         take_profit = price - (3.0 * atr)
 
-    return signal, price, ema20, ema200, rsi, atr, stop_loss, take_profit
+    return (
+        signal,
+        price,
+        ema20,
+        ema200,
+        rsi,
+        atr,
+        stop_loss,
+        take_profit
+    )
+
+
+def run_backtest():
+    candles = get_candles()
+
+    if len(candles) < 250:
+        return "❌ Nincs elegendő történelmi adat a backtesthez."
+
+    starting_balance = 10000.0
+    balance = starting_balance
+    wins = 0
+    losses = 0
+    trades = 0
+
+    for i in range(200, len(candles) - 5):
+        history = candles[:i]
+        closes = [c["close"] for c in history]
+
+        ema20 = calculate_ema(closes, 20)
+        ema200 = calculate_ema(closes, 200)
+        rsi_value = calculate_rsi(closes, 14)
+        atr_value = calculate_atr(history, 14)
+
+        if None in (ema20, ema200, rsi_value, atr_value):
+            continue
+
+        entry = candles[i]["close"]
+
+        if ema20 > ema200 and entry > ema20 and 50 <= rsi_value <= 70:
+            stop_loss = entry - (1.5 * atr_value)
+            take_profit = entry + (3.0 * atr_value)
+            direction = "BUY"
+
+        elif ema20 < ema200 and entry < ema20 and 30 <= rsi_value <= 50:
+            stop_loss = entry + (1.5 * atr_value)
+            take_profit = entry - (3.0 * atr_value)
+            direction = "SELL"
+
+        else:
+            continue
+
+        trades += 1
+        result = None
+
+        for future in candles[i + 1:i + 6]:
+            if direction == "BUY":
+                if future["low"] <= stop_loss:
+                    result = "loss"
+                    break
+
+                if future["high"] >= take_profit:
+                    result = "win"
+                    break
+
+            else:
+                if future["high"] >= stop_loss:
+                    result = "loss"
+                    break
+
+                if future["low"] <= take_profit:
+                    result = "win"
+                    break
+
+        if result == "win":
+            wins += 1
+            balance *= 1.02
+
+        elif result == "loss":
+            losses += 1
+            balance *= 0.99
+
+    profit = balance - starting_balance
+
+    return (
+        "📊 BTC/USDT BACKTEST\n\n"
+        f"💰 Kezdő egyenleg: {starting_balance:,.2f} USDT\n"
+        f"💰 Számított egyenleg: {balance:,.2f} USDT\n"
+        f"📈 Eredmény: {profit:,.2f} USDT\n\n"
+        f"📊 Ügyletek: {trades}\n"
+        f"🟢 Nyerő: {wins}\n"
+        f"🔴 Vesztes: {losses}\n\n"
+        "⚠️ Ez történelmi adatokon végzett szimuláció, "
+        "nem garantálja a jövőbeli eredményt."
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -166,7 +259,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 Kraken BTC/USDT\n"
         "📈 EMA20 + EMA200\n"
         "📉 RSI + ATR\n"
-        "🛑 Stop Loss / 🎯 Take Profit\n\n"
+        "🛑 Stop Loss / 🎯 Take Profit\n"
+        "📊 /backtest – történelmi szimuláció\n\n"
         "Valós piaci adatokat használunk."
     )
 
@@ -174,11 +268,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         candles = get_candles()
-        price = candles[-1]["close"]
+        price_value = candles[-1]["close"]
 
         await update.message.reply_text(
             f"📊 Kraken BTC/USDT\n\n"
-            f"💰 Ár: {price:,.2f} USDT"
+            f"💰 Ár: {price_value:,.2f} USDT"
         )
 
     except Exception as error:
@@ -191,7 +285,7 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         (
             signal_value,
-            price,
+            price_value,
             ema20,
             ema200,
             rsi,
@@ -203,7 +297,7 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = (
             "📊 BTC/USDT STRATÉGIA\n\n"
             f"{signal_value}\n\n"
-            f"💰 Ár: {price:,.2f} USDT\n"
+            f"💰 Ár: {price_value:,.2f} USDT\n"
             f"📈 EMA20: {ema20:,.2f}\n"
             f"📊 EMA200: {ema200:,.2f}\n"
             f"📉 RSI: {rsi:.2f}\n"
@@ -232,6 +326,17 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        result = run_backtest()
+        await update.message.reply_text(result)
+
+    except Exception as error:
+        await update.message.reply_text(
+            f"❌ Backtest hiba:\n{error}"
+        )
+
+
 async def main():
     if not TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN nincs beállítva.")
@@ -246,6 +351,7 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("price", price))
     app.add_handler(CommandHandler("signal", signal))
+    app.add_handler(CommandHandler("backtest", backtest))
 
     await app.initialize()
     await app.start()
@@ -257,4 +363,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())   
+    asyncio.run(main())
