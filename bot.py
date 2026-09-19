@@ -158,35 +158,48 @@ class HealthHandler(BaseHTTPRequestHandler):
                 )
             )
 
-            body = self.rfile.read(
+                        body = self.rfile.read(
                 content_length
             )
-signature = self.headers.get("Stripe-Signature", "")
 
-try:
-    timestamp = signature.split("t=")[1].split(",")[0]
-    signature_value = signature.split("v1=")[1].split(",")[0]
+            signature = self.headers.get(
+                "Stripe-Signature",
+                ""
+            )
 
-    signed_payload = (
-        timestamp + "." + body.decode("utf-8")
-    )
+            timestamp = None
+            signature_value = None
 
-    expected_signature = hmac.new(
-        STRIPE_WEBHOOK_SECRET.encode("utf-8"),
-        signed_payload.encode("utf-8"),
-        hashlib.sha256
-    ).hexdigest()
+            for part in signature.split(","):
+                if part.startswith("t="):
+                    timestamp = part[2:]
+                elif part.startswith("v1="):
+                    signature_value = part[3:]
 
-    if not hmac.compare_digest(
-        expected_signature,
-        signature_value
-    ):
-        self.send_response(400)
-        self.end_headers()
-        return
+            if not timestamp or not signature_value:
+                self.send_response(400)
+                self.end_headers()
+                return
 
-except Exception:
-    self.send_response(400)
+            signed_payload = (
+                timestamp
+                + "."
+                + body.decode("utf-8")
+            )
+
+            expected_signature = hmac.new(
+                STRIPE_WEBHOOK_SECRET.encode("utf-8"),
+                signed_payload.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()
+
+            if not hmac.compare_digest(
+                expected_signature,
+                signature_value
+            ):
+                self.send_response(400)
+                self.end_headers()
+                return
     self.end_headers()
     return
             event = json.loads(
@@ -254,7 +267,7 @@ except Exception:
 
             self.send_response(400)
             self.end_headers()
-
+            return
     def log_message(
         self,
         format,
