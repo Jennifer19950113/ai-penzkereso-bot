@@ -17,7 +17,7 @@ KRAKEN_BASE = "https://api.kraken.com/0/public/OHLC"
 PAIR = "XBTUSDT"
 
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
-
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 PREMIUM_FILE = "premium_users.json"
 STRIPE_PRICE_ID = "price_1UH2Bc5dT7Ky153dsKxDE1y2"
 
