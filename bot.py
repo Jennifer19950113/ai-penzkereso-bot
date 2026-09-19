@@ -1,6 +1,8 @@
 import os
 import json
 import threading
+import hmac
+import hashlib
 import time
 import urllib.parse
 from urllib.request import urlopen, Request
@@ -159,7 +161,34 @@ class HealthHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(
                 content_length
             )
+signature = self.headers.get("Stripe-Signature", "")
 
+try:
+    timestamp = signature.split("t=")[1].split(",")[0]
+    signature_value = signature.split("v1=")[1].split(",")[0]
+
+    signed_payload = (
+        timestamp + "." + body.decode("utf-8")
+    )
+
+    expected_signature = hmac.new(
+        STRIPE_WEBHOOK_SECRET.encode("utf-8"),
+        signed_payload.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(
+        expected_signature,
+        signature_value
+    ):
+        self.send_response(400)
+        self.end_headers()
+        return
+
+except Exception:
+    self.send_response(400)
+    self.end_headers()
+    return
             event = json.loads(
                 body.decode("utf-8")
             )
